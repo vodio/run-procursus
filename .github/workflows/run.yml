@@ -1,0 +1,77 @@
+name: Run Procursus
+
+on:
+  workflow_dispatch:
+    inputs:
+      rule:
+        description: "Rule to pass to make (e.g nano-package)"
+        required: true
+      target:
+        description: "Target to build for (e.g iphoneos-arm64)"
+        required: false
+        default: "iphoneos-arm64"
+      cfver:
+        description: "iOS version to build for (e.g 1800 for iOS 15)"
+        required: false
+        default: "1700"
+      source:
+        description: "Specific Procursus repository (e.g ProcursusTeam/Procursus)"
+        required: false
+        default: "ProcursusTeam/Procursus"
+      branch:
+        description: "Branch in source to checkout"
+        required: false
+        default: "main"
+      upload-base:
+        description: "Upload existant build_base"
+        required: false
+        default: "false"
+      upload-dist:
+        description: "Upload existant build_dist"
+        required: false
+        default: "true"
+
+jobs:
+  run-procursus:
+    name: Run ${{ github.event.inputs.rule }}
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          repository: "${{ github.event.inputs.source }}"
+          ref: "${{ github.event.inputs.branch }}"
+
+      - name: Setup Procursus
+        uses: dhinakg/procursus-action@main
+        with:
+          packages: odcctools autoconf automake autopoint bash bison cmake curl docbook-xml docbook-xsl fakeroot findutils flex gawk git gnupg groff grep gzip ldid ld64 libtool make ncurses-bin openssl patch pkg-config po4a python3 sed tar triehash xz-utils zstd
+          cache: true
+
+      - name: Build
+        run: |
+          gmake ${{ github.event.inputs.rule }} \
+            MEMO_TARGET=${{ github.event.inputs.target }} \
+            MEMO_CFVER=${{ github.event.inputs.cfver }} \
+            BUILD_ROOT="${{ github.workspace }}" NO_PGP=1
+
+      - name: Check for build_dist
+        id: info
+        run: |
+          if [ -d "build_dist" ]; then
+              echo "::set-output name=build-dist-exists::true"
+          else
+              echo "::set-output name=build-dist-exists::false"
+          fi
+
+      - name: Upload build_dist
+        uses: wangyucode/sftp-upload-action@v1.4.8
+        with:
+          host: ${{ secrets.FTP_HOST }}
+          port: ${{ secrets.FTP_PORT }}
+          username: vodio
+          password: ${{ secrets.FTP_PASS }}
+          forceUpload: true
+          dryRun: false
+          localDir: 'build_dist/'
+          remoteDir: '/uploads/run-procursus/${{ github.run_number }}'
